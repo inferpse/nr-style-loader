@@ -1,6 +1,6 @@
 {
   "name": "nr-style-loader",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Converts CSS code to array of strings and objects",
   "main": "index.js",
   "author": "Sergey",

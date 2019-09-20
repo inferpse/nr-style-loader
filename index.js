@@ -16,12 +16,15 @@ const cssPartEnum = {
 /**
  * Parse incoming CSS code and convert it to parts array
  * @param {String} cssCode    Piece of CSS code passed as string
+ * @param {Object} options    Parsing options object { matchers: Array<cssPartEnum> }
  * @returns {Array}           Array of matched CSS parts
  */
-const parseCSS = (cssCode) => {
+const parseCSS = (cssCode, options = {}) => {
   const replacers = [];
-  for (let i = 0, match; i < matchers.length; i++) {
-    const { reg, handler } = matchers[i];
+  const processors = (options && options.matchers) || [cssPartEnum.selector, cssPartEnum.variable, cssPartEnum.property, cssPartEnum.url];
+
+  for (let i = 0, match; i < processors.length; i++) {
+    const { reg, handler } = matchers[processors[i]];
     reg.lastIndex = 0;
     while ((match = reg.exec(cssCode)) !== null) {
       handler(match, (data) => { replacers.push(data) });
@@ -52,18 +55,52 @@ const parseCSS = (cssCode) => {
     result.push(cssCode.substr(cursor))
   }
 
-  result = result.filter(item => {
-    return (typeof item === 'string' && item.trim().length > 0) || item;
-  });
+  for (let i = 0; i < result.length; i++) {
+    const item = result[i];
+    if (typeof item === 'string' && item.length === 0) {
+      result.splice(i, 1);
+      i--;
+    }
+  }
 
   return result;
 };
 
 /**
- * Matchers
+ * Converts parsed CSS to string without any processing
+ * @param {Array|String} parsed     Array of CSS parts or original CSS code
+ * @param {String} parsed CSS
  */
-const matchers = [
-  {
+const parsedToCSS = (parsed) => {
+  if (typeof parsed === 'string') {
+    return parsed;
+  }
+
+  const cssCode = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const part = parsed[i];
+    if (typeof part === 'string') {
+      cssCode.push(part);
+      continue;
+    }
+    switch (part.type) {
+      case cssPartEnum.url:
+      case cssPartEnum.selector:
+        cssCode.push(part.value);
+        break;
+      case cssPartEnum.variable:
+        cssCode.push(`--var(${part.value})`);
+        break;
+    }
+  }
+  return cssCode.join('');
+}
+
+/**
+ * CSS code matchers
+ */
+const matchers = {
+  [cssPartEnum.selector]: {
     reg: /(^\s*?|\n\s*?|}\s*)([a-z0-9 =_,+^*$"'> \t\r\n[\]():\-.#]+){/gi,
     handler: (match, addReplacer) => {
       const [, selectorBefore, selectorList] = match;
@@ -92,24 +129,28 @@ const matchers = [
       }
     }
   },
-  {
+  [cssPartEnum.variable]: {
     reg: /var\(--([a-z0-9]*)\)/gi,
     handler: (match, addReplacer) => {
       const [fullMatch, varName] = match;
 
-      // check if we need to escape variable value (in case if this is an attribute of inlined SVG or inside the quotes)
-      const needsEscaping = (match.input.charAt(match.index - 2) === '=' || match.input.charAt(match.index + match.length) === "'");
-
-      addReplacer({
+      const replacer = {
         type: cssPartEnum.variable,
         value: varName,
         index: match.index,
         length: fullMatch.length,
-        needsEscaping,
-      });
+      };
+
+      // check if we need to escape variable value (in case if this is an attribute of inlined SVG or inside the quotes)
+      const needsEncoding = (match.input.charAt(match.index - 2) === '=' || match.input.charAt(match.index + match.length) === "'");
+      if (needsEncoding) {
+        replacer.encode = true;
+      }
+
+      addReplacer(replacer);
     }
   },
-  {
+  [cssPartEnum.property]: {
     reg: /([\s\S]*:root.*?{)([^}]*)}/gmi,
     handler: (match, addReplacer) => {
       const [, matchStart, items] = match;
@@ -138,7 +179,7 @@ const matchers = [
       }
     }
   },
-  {
+  [cssPartEnum.url]: {
     reg: /(:.*?url.*?\(\s*(?:'|")?)(.+?)((?:'|"\s*)?\))/gi,
     handler: (match, addReplacer) => {
       const [, selectorBefore, url] = match;
@@ -152,4 +193,4 @@ const matchers = [
       }
     }
   },
-];
+};
